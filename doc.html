@@ -1,0 +1,135 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      ol { padding: 0 0 0 2em; }
+      ol[manual] { padding: 0 0 0 1em; list-style: none; }
+      li[value]:before { content: attr(value) ". " }
+    </style>
+  </head>
+  <body>
+    <h2>Web of Trust system</h2>
+<h3>Use cases</h3>
+<p>Tagged querying of trust of various identified users.</p>
+<h3>System Design</h3>
+<h4>User identifier</h4>
+<p>Multiple methods, each can have multiple identifiers
+per user.</p>
+<p>Technically, multiple identifiers are equivalent to a clique with
+full-trust edges. Practically, not all identities can assign trust
+(e.g. non-cryptographic ones can't), and querying can be optimised for
+those cliques.</p>
+<ol manual=1>
+ <li value="1">
+ email
+ </li>
+ <li value="2">
+ email md5
+   <ol manual=1>
+   <li value="2.1">
+   Use case: comments. See: gravatar.
+   </li>
+   </ol>
+ </li>
+ <li value="3">
+ pgp
+ </li>
+ <li value="4">
+ pluggable anything
+   <ol manual=1>
+   <li value="4.1">
+   e.g. social network identifiers.
+   </li>
+   </ol>
+ </li>
+ </ol>
+
+<h4>Tagging</h4>
+<p>Query tags. Examples:</p>
+<ol manual=1>
+ <li value="1">
+ “general”
+   <ol manual=1>
+   <li value="1.1">
+   A special case, e.g. for mixing into trust with other tags and/or
+        where no trust per other tags are available.
+     <ol manual=1>
+     <li value="1.1.1">
+     Design decision TODO.
+     </li>
+     <li value="1.1.2">
+     Possibly, allow users to include a `f(trusts) -> float` in a query.
+       <ol manual=1>
+       <li value="1.1.2.1">
+       ...
+       </li>
+       </ol>
+     </li>
+     </ol>
+   </li>
+   </ol>
+ </li>
+ <li value="2">
+ “service”
+ </li>
+ <li value="3">
+ “commodity”
+ </li>
+ <li value="4">
+ “ideology”
+ </li>
+ </ol>
+
+<h4>Graph assigning</h4>
+<p>User action: set a node in the graph.</p>
+<ol manual=1>
+ <li value="1">
+ Way one: `set (self, user_id, tag) = trust`
+   <ol manual=1>
+   <li value="1.1">
+   Trust is always `0 .. 1`.
+   </li>
+   </ol>
+ </li>
+ <li value="2">
+ Way two: log a rated interaction `add (self, user_id, tag) <- trust`
+   <ol manual=1>
+   <li value="2.1">
+   Design TODO: Can possibly use bayesian score to compute the
+        resulting trust.
+   </li>
+   </ol>
+ </li>
+ </ol>
+
+<p>Possible action: unset a node in the graph (set to <code>NaN</code>). TODO:
+results of it are unclear.</p>
+<h4>Implementations</h4>
+<p>A <em>reference</em> implementation, in e.g. python 3; asynchronous; possibly
+with Cython (if performance becomes a concern).</p>
+<p>Skipping possibly useful dependencies is not recommended.</p>
+<p>Recommendations:</p>
+<ol manual=1>
+ <li value="1">
+ Separate parseable logging of all user-actions (up to ability to
+    re-apply the actions).
+ </li>
+ <li value="2">
+ Include all the useful dependencies; stripping them down if needed
+    is doable.
+ </li>
+ </ol>
+
+<h4>Extensibility</h4>
+<p>A controversial point: some extending might be useful; however, it
+becomes useful when most reference implementations use it. See: XMPP
+(XEP) successes-and-failures-case. Possibly, discourage
+reimplementations and skip plugins until a sufficient system is
+implemented, and recommend implementation in the reference code of any
+plugin. Plugin-like structure in the reference code might be useful
+for that.</p>
+  </body>
+</html>
+    
