@@ -3,7 +3,7 @@
 
 === Use cases ===
 
-Tagged querying of trust of various identified users.
+Querying of graph-determined tagged-trust of identified users.
 
 
 === System Design ===
@@ -15,8 +15,8 @@ per user.
 
 Technically, multiple identifiers are equivalent to a clique with
 full-trust edges. Practically, not all identities can assign trust
-(e.g. non-cryptographic ones can't), and querying can be optimised for
-those cliques.
+(e.g. non-cryptographic ones might not be able to), and querying can
+be optimised for those cliques.
 
  1. email
  2. email md5
@@ -24,6 +24,8 @@ those cliques.
  3. pgp
  4. pluggable anything
    4.1. e.g. social network identifiers.
+
+Each user is considered to be a single node un the graph.
 
 
 ==== Tagging ====
@@ -55,7 +57,116 @@ Possible action: unset a node in the graph (set to `NaN`). TODO:
 results of it are unclear.
 
 
+==== Federation ====
+
+ 1. Useful for personal servers and clustered servers.
+ 2. Requires identities to be somehow associated with addresses
+   2.1. Possibly by setting metainformation for the user_id
+     2.1.1. Might require the messages to be somehow signed for security.
+            E.g. a query-signing key associated with the user with
+            the secret part present on the server that answers the queries
+            directed to that user.
+ 3. Inter-server traffic encryption is recommended but not particularly required.
+ 4. It should be possible to group inter-server queries (`Packet`s)
+    and responses (for optimisation).
+ 5. TODO: Whether a `Packet`'s actual return address can be different
+    from the address of the server that sends the query is
+    uncertain. Probably shouldn't be.
+
+
+TODO: further design.
+
+
+==== Graph hiding ====
+
+Currently it is considered near-impossible to hide the relations graph
+from someone who can control the user's traffic.
+
+At most it can be made noisier (bitcoin-transactions-like).
+
+The particular weights might be hidden, however it might still be
+possible to mine them out.
+
+ 1. Simple problem-case is that user A sends a Packet to user B with
+    target_user_id `A`, therefore possibly finding out the precise trust
+    assigned at `B->A`. Whether that trust is direct or derived can be
+    determined by timing and ttl.
+   1.1. Possibly, each user should recurse over edges regardless of
+        having a direct trust.
+
+TODO: Further research.
+
+
+==== Querying ====
+
+User action: find out the practical reputation of another user.
+
+ 1. `Query`: `{uuid, target_user_id, reputation_func}`
+   1.1. `uuid` is the unique identifier of the Query (used later).
+   1.2. `target_user_id` is the User identifier of the user whose
+         reputation is queried.
+   1.3. `reputation_func` is the pure-functional low-computation
+         function (represented as a string) that converts per-tag
+         reputation to a single value, i.e.
+         `reputation_func({(string)tag_name: (float)rep, …}) -> (float)resulting_reputation`.
+     1.3.1. At first only few specific constants should be allowed in
+            `reputation_func` that have corresponding implementations
+            in the codebase, such as `reps.get("some_tag", reps["general"])`.
+ 2. `Packet`: `{(Query)query, requested_user_id, return_address, ttl, rep_cutoff}`
+   2.1. `requested_user_id` is the user identifier of the user who is
+        asked for reputation evaluation (i.e. packet target).
+   2.2. `return_address` is the user identifier which should receive the
+        evaluation result.
+   2.3. `ttl` is IP-like time-to-live of the packet.
+   2.4. `rep_cutoff` is minimal interesting reputation, for
+        optimisational purposes.
+     2.4.1. TODO: needs further design and research.
+ 3. Query is “sent” from the source_user over all graph edges going
+    from that user.
+ 4. When a Node with id `current_node_id` receives a Packet, it is
+    expected to return the evaluation result.
+   4.1. The evaluation result is to be sent to `return_address`.
+   4.2. Optimisations:
+     4.2.1. If the node has recently *started* answering a query with
+          the same `uuid`, it can return the cached result avoiding
+          further recursion.
+       4.2.1.1. TODO: The caching time is an uncertain parameter; might be
+              configurable (in seconds or in max cache memory usage).
+       4.2.1.2. If the node started answering that query but did not
+                finish yet, it should return `NaN`. That way, loops are cut.
+     4.2.2. If `ttl` <= 0, respond with `NaN` without further recursion.
+   4.3. If the node has a direct link to User `target_user_id`, it
+        computes the reputation and responds.
+     4.3.1. *problematic*. See [gh_1.1](#Web_of_Trust_system__System_Design__Graph_hiding__1).
+   4.4. Otherwise it recurses the querying by sending a Packet with
+        `return_address` set to `current_node_id` node's own id and
+        decremented `ttl` to each of the node's edges.
+     4.4.1. Nodes with weights lower than `rep_cutoff` can be skipped (see `2.4.`)
+       4.4.2. Correspondingly, each packet's rep_cutoff should be set to a multiple of 
+     4.4.2. The `return_address` replacement is for two reasons:
+       4.4.2.1. The results will be sent to that node so that it can
+                multiply each result by own weight for the responding
+                edge, and when all the results are obtained respond
+                with own result.
+       4.4.2.2. The quering might (or might not) be plausibly-deniable
+                as there is no method to discern user's own queries from
+                recursed queries.
+         4.4.2.2.1. For that reason the initial `ttl` needs to be
+                    randomised (or removed in favor of
+                    rep_cutoff). However, any randomisation can be
+                    evened out statistically.
+     4.4.3. Results are considered complete when either:
+       4.4.3.1. All nodes respond.
+       4.4.3.2. Timeout is reached.
+     4.4.4. The results list (that might include `NaN`) are *somehow*
+            combined into a single result.
+       4.4.4.1. TODO: probably by `max(results, default=NaN)`, but it is to be decided.
+         4.4.4.1.1. Should it be customisable, same as `reputation_func`?
+
+
 ==== Implementations ====
+
+TODO.
 
 A *reference* implementation, in e.g. python 3; asynchronous; possibly
 with Cython (if performance becomes a concern).

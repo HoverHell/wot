@@ -15,7 +15,12 @@ import pyaux
 def repl_header(match):
     """ Replace '=' header with '#' header """
     lh, text, rh = match.groups()
-    res = '%s %s %s' % ('#' * len(lh), text, '#' * len(rh))
+    anchor = text.strip().replace(' ', '_')
+    res = '%(lh)s %(text)s <a name="%(anchor)s" href="#%(anchor)s">§</a> %(rh)s' % dict(
+        lh='#' * len(lh), text=text, anchor=anchor, rh='#' * len(rh))
+    # # Add an anchor
+    # res = '<a href="%s">\n%s\
+    # res += '\n<a name="%s"></a>' % (text.strip(),)
     return res
 
 
@@ -23,6 +28,7 @@ class Worker:
     result = None
     state = None
     state__list = None
+    state__location = None
 
     simple_replacements = (
         # header
@@ -36,10 +42,35 @@ class Worker:
 <html>
   <head>
     <meta charset="utf-8" />
-    <style>
-      ol { padding: 0 0 0 2em; }
-      ol[manual] { padding: 0 0 0 1em; list-style: none; }
-      li[value]:before { content: attr(value) ". " }
+    <style type="text/css">
+      h1, h2, h3 {
+        line-height: 1.2;
+      }
+      body {
+        margin: 40px auto;
+        max-width: 650px;
+        line-height: 1.6;
+        font-size: 18px;
+        color: #444;
+        padding: 0 10px;
+      }
+      ol {
+        padding: 0 0 0 2em;
+      }
+      ol[manual] {
+        padding-left: 1em;
+        list-style: none;
+
+      }
+      ol[manual] li {
+        padding-top: 0.25em;
+
+        text-indent: -1em;
+        padding-left: 1em;
+      }
+      li[value]:before {
+        content: attr(value) ". ";
+      }
     </style>
   </head>
   <body>
@@ -55,14 +86,16 @@ class Worker:
     item_footer = '</li>'  # non-item-specific
 
     def process(self, lines):
-        self.state = None
+        self.state = ''
+        self.state__list = []
+        self.state__location = []
         self.result = []
 
         # self.result.append(self.header)
 
         lines = (self.handle_simple_replacements(line) for line in lines)
         line_iter = pyaux.window(lines, fill_left=True, fill=None)
-        
+
         for prev_line, line in line_iter:
             self.check_state(prev_line, line)
             if self.state == 'list':
@@ -99,6 +132,31 @@ class Worker:
             self.state = 'list'
             self.state_list = []
 
+        if self.state == '':
+            # Process the headings-state
+            self.check_state_header(line)
+
+    def check_state_header(self, line):
+        """ Keep the state__location current """
+        heading_match = re.search(
+            r'^(?P<tag>#+).*name="(?P<name>[^"]+)".*',
+            line)
+        if not heading_match:
+            return
+
+        data = heading_match.groupdict()
+        depth = len(data['tag'])
+        # Should almost always exist because of repl_header.
+        name = data.get('name') or ''
+        data.update(depth=depth, name=name)
+        if not self.state__location:
+            self.state__location = [data]
+            return
+
+        shallower, same_or_deeper = pyaux.split_list(
+            self.state__location, lambda info: info['depth'] < depth)
+        self.state__location = shallower + [data]
+
     def process_list(self, line):
         # any line should match
         match = re.search(
@@ -109,6 +167,13 @@ class Worker:
         indent = len(spaces)
         num = data.get('num')
         text = data['text']
+        # Synopsis: markdown considers everything within html tags to
+        # be written as-is. Therefore, process all htat stuff
+        # explicitly.
+        # TODO: this all should've probably been done as markdown
+        # extender subclass.
+        text = _markdown_process(text)
+        text = re.sub(r'^ *<p>(.*)</p> *$', r'\1', text)
 
         if not num:
             # put as-is
@@ -117,6 +182,11 @@ class Worker:
             return
 
         item_header = '<li value="%s">' % (num,)
+
+        anchor_name = ''.join(
+            "%s__" % (info['name'],) for info in self.state__location)
+        anchor_name = anchor_name + num.rstrip('.').replace('.', '_')
+        item_header = item_header + '<a name="%s"></a>' % (anchor_name,)
         item_footer = self.item_footer
         item_info = dict(data, indent=indent)
 
@@ -139,7 +209,7 @@ class Worker:
                 spaces + item_header,  # <li>
                 spaces + text))
             last_info.update(item_info)  # replace the num for possible recursion
-        elif 0 < indent - last_info['indent'] <= 3:
+        elif 0 < indent - last_info['indent'] <= 2:
             # going deeper
             # ol-li-ol-li chain
             self.result.extend((
@@ -157,6 +227,8 @@ class Worker:
                 spaces + item_footer,  # </li>
                 spaces + item_header,  # <li>
                 spaces + text))
+        else:  # more than 2 spaces deeper in; assume it's just more text
+            self.result.append(line)
 
     def unwind_list(self, infos=None):
         if infos is None:
@@ -166,6 +238,11 @@ class Worker:
             self.result.extend((
                 spaces + self.item_footer,  # </li>
                 spaces + self.list_footer))  # </ol>
+
+
+def _markdown_process(text, *ar, **kwa):
+    import markdown
+    return markdown.Markdown(*ar, **kwa).convert(text)
 
 
 def main():
@@ -188,7 +265,7 @@ def main():
         fo.write(result_s)
 
     import markdown
-    result_html_base = markdown.Markdown().convert(result_s)
+    result_html_base = _markdown_process(result_s)
     result_html = worker.header + result_html_base + worker.footer
     # with open('doc_xx.html', 'w') as fo:
     #     fo.write(result_html_base)
